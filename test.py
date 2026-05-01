@@ -21,6 +21,7 @@ import numpy as np
 from tqdm import tqdm
 from os.path import exists
 import torch.optim as optim
+from regressor_callibration_hook import RegressorCalibrationHook
 
 
 parser = argparse.ArgumentParser(description="Few Shot Counting Evaluation code")
@@ -40,6 +41,11 @@ anno_file = data_path + 'annotation_FSC147_384.json'
 data_split_file = data_path + 'Train_Test_Val_FSC_147.json'
 im_dir = data_path + 'images_384_VarV2'
 
+print("Annotation file: {}".format(anno_file))
+print("Image dir: {}".format(im_dir))
+
+print(f"{os.listdir(data_path)}")
+
 if not exists(anno_file) or not exists(im_dir):
     print("Make sure you set up the --data-path correctly.")
     print("Current setting is {}, but the image dir and annotation file do not exist.".format(args.data_path))
@@ -58,8 +64,11 @@ resnet50_conv = Resnet50FPN()
 if use_gpu: resnet50_conv.cuda()
 resnet50_conv.eval()
 
+regressor_hook = RegressorCalibrationHook()
+
+
 regressor = CountRegressor(6, pool='mean')
-regressor.load_state_dict(torch.load(args.model_path))
+regressor.load_state_dict(torch.load(args.model_path, map_location=torch.device('cpu')))
 if use_gpu: regressor.cuda()
 regressor.eval()
 
@@ -98,7 +107,10 @@ for im_id in pbar:
         image = image.cuda()
         boxes = boxes.cuda()
 
+
     with torch.no_grad(): features = extract_features(resnet50_conv, image.unsqueeze(0), boxes.unsqueeze(0), MAPS, Scales)
+    
+    regressor_hook.intercept(features)
 
     if not args.adapt:
         with torch.no_grad(): output = regressor(features)

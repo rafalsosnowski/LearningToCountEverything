@@ -82,10 +82,5 @@ def weights_normal_init(model, dev=0.01):
                 m.weight.data.normal_(0.0, dev)
 
 
-def weights_xavier_init(m):
-    if isinstance(m, nn.Conv2d):
-        torch.nn.init.xavier_normal_(m.weight, gain=nn.init.calculate_gain('relu'))
-        if m.bias is not None:
-            torch.nn.init.zeros_(m.bias)
             
             

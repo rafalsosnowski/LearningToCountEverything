@@ -18,6 +18,8 @@ import torch.optim as optim
 from utils import MincountLoss, PerturbationLoss
 from tqdm import tqdm
 
+import numpy as np
+
 parser = argparse.ArgumentParser(description="Few Shot Counting Demo code")
 parser.add_argument("-i", "--input-image", type=str, required=True, help="/Path/to/input/image/file/")
 parser.add_argument("-b", "--bbox-file", type=str, help="/Path/to/file/of/bounding/boxes")
@@ -101,11 +103,24 @@ if use_gpu:
     image = image.cuda()
     boxes = boxes.cuda()
 
+
+
 with torch.no_grad():
     features = extract_features(resnet50_conv, image.unsqueeze(0), boxes.unsqueeze(0), MAPS, Scales)
+    
+    print("input - min: {}, max: {}, mean: {}, median: {}, shape: {}".format(
+        features.min().item(), features.max().item(), features.mean().item(), 
+        features.median().item(), features.shape))
 
 if not args.adapt:
     with torch.no_grad(): output = regressor(features)
+
+    # Save features into a file
+    np.save('features.npy', features.cpu().numpy())
+    
+    print("output - min: {}, max: {}, mean: {}, median: {}, shape: {}".format(
+        output.min().item(), output.max().item(), output.mean().item(), 
+        output.median().item(), output.shape))
 else:
     features.required_grad = True
     #adapted_regressor = copy.deepcopy(regressor)
@@ -130,6 +145,9 @@ else:
 
     features.required_grad = False
     output = adapted_regressor(features)
+    
+
+    x=1
 
 
 print('===> The predicted count is: {:6.2f}'.format(output.sum().item()))

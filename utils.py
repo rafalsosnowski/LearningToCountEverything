@@ -13,7 +13,7 @@ matplotlib.use('agg')
 MAPS = ['map3','map4']
 Scales = [0.9, 1.1]
 MIN_HW = 384
-MAX_HW = 1584
+MAX_HW = 384
 IM_NORM_MEAN = [0.485, 0.456, 0.406]
 IM_NORM_STD = [0.229, 0.224, 0.225]
 
@@ -109,38 +109,31 @@ def MincountLoss(output,boxes, use_gpu=True):
     return Loss
 
 
-def pad_to_size(feat, desire_h, desire_w):
-    """ zero-padding a four dim feature matrix: N*C*H*W so that the new Height and Width are the desired ones
-        desire_h and desire_w should be largers than the current height and weight
-    """
-
-    cur_h = feat.shape[-2]
-    cur_w = feat.shape[-1]
-
-    left_pad = (desire_w - cur_w + 1) // 2
-    right_pad = (desire_w - cur_w) - left_pad
-    top_pad = (desire_h - cur_h + 1) // 2
-    bottom_pad =(desire_h - cur_h) - top_pad
-
-    return F.pad(feat, (left_pad, right_pad, top_pad, bottom_pad))
-
 
 def extract_features(feature_model, image, boxes,feat_map_keys=['map3','map4'], exemplar_scales=[0.9, 1.1]):
     N, M = image.shape[0], boxes.shape[2]
+    print("N, M: ", N, M)
     """
     Getting features for the image N * C * H * W
     """
     Image_features = feature_model(image)
+    print("\nImage features shape: ", {k: v.shape for k, v in Image_features.items()},"\n")
+    for k, v in Image_features.items():
+        print("{} - min: {}, max: {}, mean: {:.4f}, median: {}, shape: {}".format(
+            k, v.min().item(), v.max().item(), v.mean().item(), v.median().item(), v.shape))
     """
     Getting features for the examples (N*M) * C * h * w
     """
     for ix in range(0,N):
         # boxes = boxes.squeeze(0)
+        print("Boxes: ", boxes, boxes.shape)
         boxes = boxes[ix][0]
         cnter = 0
         Cnter1 = 0
         for keys in feat_map_keys:
             image_features = Image_features[keys][ix].unsqueeze(0)
+            # print("\nimage_features", image_features.shape)
+            
             if keys == 'map1' or keys == 'map2':
                 Scaling = 4.0
             elif keys == 'map3':
@@ -165,7 +158,9 @@ def extract_features(feature_model, image, boxes,feat_map_keys=['map3','map4'], 
             for j in range(0,M):
                 y1, x1 = int(boxes_scaled[j,1]), int(boxes_scaled[j,2])  
                 y2, x2 = int(boxes_scaled[j,3]), int(boxes_scaled[j,4]) 
-                #print(y1,y2,x1,x2,max_h,max_w)
+                print("\n coordinates: ", y1,x1,y2,x2,"\n")
+                
+                
                 if j == 0:
                     examples_features = image_features[:,:,y1:y2, x1:x2]
                     if examples_features.shape[2] != max_h or examples_features.shape[3] != max_w:
@@ -210,9 +205,12 @@ def extract_features(feature_model, image, boxes,feat_map_keys=['map3','map4'], 
             All_feat = 1.0 * Combined.unsqueeze(0)
         else:
             All_feat = torch.cat((All_feat,Combined.unsqueeze(0)),dim=0)
+            
+    print("All_feat", All_feat.shape)
     return All_feat
 
-
+from PIL import Image
+from torchvision.transforms.functional import pad
 class resizeImage(object):
     """
     If either the width or height of an image exceed a specified value, resize the image so that:
@@ -223,31 +221,45 @@ class resizeImage(object):
     By: Minh Hoai Nguyen (minhhoai@gmail.com)
     """
     
-    def __init__(self, MAX_HW=1504):
-        self.max_hw = MAX_HW
+    def __init__(self, TARGET_HW=256):
+        self.target_hw = TARGET_HW
 
     def __call__(self, sample):
         image,lines_boxes = sample['image'], sample['lines_boxes']
         
         W, H = image.size
-        if W > self.max_hw or H > self.max_hw:
-            scale_factor = float(self.max_hw)/ max(H, W)
-            new_H = 8*int(H*scale_factor/8)
-            new_W = 8*int(W*scale_factor/8)
-            resized_image = transforms.Resize((new_H, new_W))(image)
-        else:
-            scale_factor = 1
-            resized_image = image
+        
+        scale_factor = float(self.target_hw) / max(H, W)
+        
+        new_W = int(W * scale_factor)
+        new_H = int(H * scale_factor)
+
+        resized_image = image.resize((new_W, new_H), Image.BILINEAR)
+        pad_left = (self.target_hw - new_W) // 2
+        pad_top = (self.target_hw - new_H) // 2
+        pad_right = self.target_hw - new_W - pad_left
+        pad_bottom = self.target_hw - new_H - pad_top
+        
+        padded_image = pad(resized_image, (pad_left, pad_top, pad_right, pad_bottom), fill=0)
+        
 
         boxes = list()
         for box in lines_boxes:
-            box2 = [int(k*scale_factor) for k in box]
-            y1, x1, y2, x2 = box2[0], box2[1], box2[2], box2[3]
-            boxes.append([0, y1,x1,y2,x2])
+            y1 = int(box[0] * scale_factor) + pad_top
+            x1 = int(box[1] * scale_factor) + pad_left
+            y2 = int(box[2] * scale_factor) + pad_top
+            x2 = int(box[3] * scale_factor) + pad_left
+            
+            # Ensure coordinates don't exceed boundaries
+            y1, y2 = max(0, y1), min(self.target_hw, y2)
+            x1, x2 = max(0, x1), min(self.target_hw, x2)
+            
+            boxes.append([0, y1, x1, y2, x2])
 
         boxes = torch.Tensor(boxes).unsqueeze(0)
-        resized_image = Normalize(resized_image)
-        sample = {'image':resized_image,'boxes':boxes}
+        normalized_image = Normalize(padded_image)
+        sample = {'image':normalized_image,'boxes':boxes}
+                
         return sample
 
 
@@ -294,6 +306,7 @@ class resizeImageWithGT(object):
         resized_image = Normalize(resized_image)
         resized_density = torch.from_numpy(resized_density).unsqueeze(0).unsqueeze(0)
         sample = {'image':resized_image,'boxes':boxes,'gt_density':resized_density}
+
         return sample
 
 

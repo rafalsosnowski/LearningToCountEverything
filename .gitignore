@@ -1,0 +1,9 @@
+/FSC147_384_V2
+/data
+__pycache__/
+/*.npy
+/*.jpg
+/*.png
+/*.txt
+output/
+.vscode/
