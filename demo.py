@@ -7,7 +7,7 @@ Last modified: 19-Apr-2021
 """
 
 import cv2
-from model import CountRegressor, Resnet50FPN
+from model import CountRegressor, Resnet50FPN, Resnet50FPNONNX, CountRegressor_ONNX
 from utils import MAPS, Scales, Transform, extract_features
 from utils import visualize_output_and_save, select_exemplar_rois
 from PIL import Image
@@ -43,18 +43,19 @@ else:
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu_id)
 
-resnet50_conv = Resnet50FPN()
-regressor = CountRegressor(6, pool='mean')
+resnet50_conv = Resnet50FPNONNX(use_gpu=use_gpu)
+regressor = CountRegressor_ONNX(use_gpu=use_gpu)
 
-if use_gpu:
-    resnet50_conv.cuda()
-    regressor.cuda()
-    regressor.load_state_dict(torch.load(args.model_path))
-else:
-    regressor.load_state_dict(torch.load(args.model_path, map_location=torch.device('cpu')))
+# regressor = CountRegressor(6, pool='mean')
+# if use_gpu:
+#     regressor.cuda()
+#     regressor.load_state_dict(torch.load(args.model_path))
+# else:
+#     regressor.load_state_dict(torch.load(args.model_path, map_location=torch.device('cpu')))
 
-resnet50_conv.eval()
-regressor.eval()
+# # resnet50_conv is ONNX, no eval needed
+# regressor.eval()
+
 
 image_name = os.path.basename(args.input_image)
 image_name = os.path.splitext(image_name)[0]
